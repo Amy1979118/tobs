@@ -252,7 +252,7 @@ classdef ILP < Optimization
 		    exit;
                 end
             end
-            disp (['Optimized Objective Value from ILP = ' num2str(ObjValue, 10)]);
+            %disp (['Optimized Objective Value from ILP = ' num2str(ObjValue, 10)]);
             x = round (x);
             UpdatedVariables = DesignVariables + x;
             if (self.SpaceDimension == 2)

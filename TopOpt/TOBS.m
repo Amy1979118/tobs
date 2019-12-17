@@ -37,8 +37,8 @@ classdef TOBS
         %% Constructor
         function tobs = TOBS(constraints_limits_in, epsilons_in, flip_limits_in, number_of_variables)
 
-            disp([' '])
-            disp(['         Preparing TOBS.'])
+            %disp([' '])
+            disp(['        Preparing TOBS.'])
 
             % Optimization constraint limits
             tobs.constraints_limits = constraints_limits_in;
@@ -78,7 +78,7 @@ classdef TOBS
 		    PythonConstCoeff, PythonRelaxedLimits, ...
 		    PythonLowerLimits, PythonUpperLimits, PythonnDesignVariables] = COptimize.Optimize (tobs.objective_sensitivities, tobs.constraints_sensitivities, options);
 
-	    disp('bruno')
+	    %disp('bruno')
 
         end % end SolveWithILP
 
