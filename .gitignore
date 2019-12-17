@@ -3,3 +3,4 @@
 **/*.vtk
 **/*.pvd
 tags
+output/*.txt

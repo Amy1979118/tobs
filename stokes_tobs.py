@@ -2,6 +2,7 @@ from oct2py import octave
 from dolfin import *
 from dolfin_adjoint import *
 import numpy as np
+import os
 
 import cplex
 from cplex.exceptions import CplexError
@@ -90,17 +91,11 @@ class Optimizer(object):
         self.__check_ds_vars__()
 
         volume_val = float( self.vol_xi.inner( self.fc_xi.vector() ) )
-        print('---------')
-        print(volume_val/self.vol_sum)
-        print('---------')
 
         return volume_val/self.vol_sum
 
     def volfrac_dfun(self, user_data=None):
         v_df = self.vol_xi/self.vol_sum
-        print('*/-*/-*/-*/')
-        print(np.array(v_df)[0])
-        print('*/-*/-*/-*/')
         return v_df
 
     def flag_jacobian(self):
@@ -129,21 +124,19 @@ parameters["std_out_all_processes"] = False
 pasta = "output/"
 
 mu = Constant(1.0)                   # viscosity
-alphaunderbar = 2.5 * mu / (100**2)  # parameter for \alpha
-alphabar = 2.5 * mu / (0.01**2)      # parameter for \alpha
-alphaunderbar = 2.5 * mu *1.e-10
-alphabar = 2.5 * mu * 1e10
+alphaunderbar = 2.5 * mu *1.e-4
+alphabar = 2.5 * mu * 1e4
 q = Constant(1.0) # q value that controls difficulty/discrete-valuedness of solution
 
 def alpha(rho):
     """Inverse permeability as a function of rho, equation (40)"""
     return alphabar + (alphaunderbar - alphabar) * rho * (1 + q) / (rho + q)
 
-N = 40
+N = 80
 delta = 1.5  # The aspect ratio of the domain, 1 high and \delta wide
 V = Constant(1.0/3) * delta  # want the fluid to occupy 1/3 of the domain
 
-mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(N*3/2), N, diagonal="crossed"))
+mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(N*3/2), N, diagonal="right"))
 A = FunctionSpace(mesh, "DG", 0)        # control function space
 
 U_h = VectorElement("CG", mesh.ufl_cell(), 2)
@@ -179,7 +172,9 @@ def forward(rho):
     F = (alpha(rho) * inner(u, v) * dx + mu*inner(grad(u)+grad(u).T, grad(v)) * dx +
          inner(grad(p), v) * dx  + inner(div(u), q) * dx)
     bc = DirichletBC(W.sub(0), InflowOutflow(degree=1), "on_boundary")
-    solve(lhs(F) == rhs(F), w_resp, bcs=bc)
+    l_esq = lhs(F)
+    l_dir = rhs(F)
+    solve(l_esq == l_dir, w_resp, bcs=bc)
 
     return w_resp
 
@@ -220,20 +215,29 @@ if __name__ == "__main__":
     state_file = File(pasta + "veloc.pvd")
     rho_viz = Function(A, name="ControlVisualisation")
 
+    file_obj_fun_path = pasta + "fun_obj.txt"
+    if os.path.exists(file_obj_fun_path):
+        os.remove(file_obj_fun_path)
+    with open(file_obj_fun_path, "a+") as f:
+        f.write("FunObj\n")
+
     controls << rho
 
     iteration = 0
     epsilons = .2
 
     while True:
-        J = assemble(0.5 * inner(alpha(rho) * u, u) * dx + mu * inner(grad(u), grad(u)) * dx)
+        set_working_tape(Tape())
+        J = assemble(0.5 * inner(alpha(rho) * u, u) * dx + mu * inner(grad(u), grad(u).T) * dx)
+        with open(file_obj_fun_path, "a+") as f:
+            f.write(str(float(J))+"\n")
+
         nvar = len(rho.vector())
 
         fval = Optimizer(rho)
         fval.add_objfun(J)
         fval.add_volf_constraint(0.7,0.5)
         fval.rho = rho.vector()
-        fid_rho = File("rho.pvd")
         x_L = np.ones((nvar), dtype=np.float) * 0.0
         x_U = np.ones((nvar), dtype=np.float) * 1.0
         acst_L = np.array(fval.cst_L)
@@ -265,6 +269,10 @@ if __name__ == "__main__":
         PythonUpperLimits = ans[0][5]
         PythonnDesignVariables = ans[0][6]
         my_prob = cplex.Cplex()
+        my_prob.parameters.mip.strategy.variableselect.set(2)
+        # my_prob.parameters.mip.strategy.file.set(3) #default is 1
+        # my_prob.parameters.mip.limits.treememory.set(1e+3)
+        # my_prob.parameters.workmem.set(10)
         coef = [item[0] for item in PythonObjCoeff.tolist()]
         constcoef = PythonConstCoeff.tolist()
         rlimits = [item[0] for item in PythonRelaxedLimits.tolist()]
@@ -283,9 +291,12 @@ if __name__ == "__main__":
         (u, p) = w_resp.split()
         u.rename("Velocidade", "")
         state_file << u
-        if iteration == 700:
+        if iteration == 140:
             break
-        else: iteration += 1
+        elif iteration == 6:
+            #q.assign(0.01)
+            pass
+        iteration += 1
         jd_previous = jd
-        del my_prob
+    file_obj_fun.close()
 

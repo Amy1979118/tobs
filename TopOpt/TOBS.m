@@ -78,7 +78,6 @@ classdef TOBS
 		    PythonConstCoeff, PythonRelaxedLimits, ...
 		    PythonLowerLimits, PythonUpperLimits, PythonnDesignVariables] = COptimize.Optimize (tobs.objective_sensitivities, tobs.constraints_sensitivities, options);
 
-	    disp('bruno')
 
         end % end SolveWithILP
 

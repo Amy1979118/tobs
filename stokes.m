@@ -16,8 +16,8 @@ disp(' ')
 % Optimization parameters
 %radius = 6;                  % Filter radius in length unit
 %rho_min = 0.001^3;           % Minimum density (for void elements)
-volume_constraint = 3.0e-1; % Compliance (Nm) constraint
-flip_limits = 0.05;               % Flip limits
+volume_constraint = 1/3; % Compliance (Nm) constraint
+flip_limits = 0.01;               % Flip limits
 
 %% --------------------------------------------------------------------- %%
 %                         ** Problem set up **                            %
