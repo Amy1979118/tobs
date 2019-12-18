@@ -298,5 +298,4 @@ if __name__ == "__main__":
             pass
         iteration += 1
         jd_previous = jd
-    file_obj_fun.close()
 
