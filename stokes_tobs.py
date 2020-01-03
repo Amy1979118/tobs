@@ -7,7 +7,8 @@ import os
 import cplex
 from cplex.exceptions import CplexError
 
-set_log_level(50)
+# parameters["linear_algebra_backend"] = 'Eigen'
+# set_log_level(50)
 
 class Optimizer(object):
 
@@ -146,6 +147,9 @@ W = FunctionSpace(mesh, U_h*P_h)          # mixed Taylor-Hood function space
 # Define the boundary condition on velocity
 
 class InflowOutflow(UserExpression):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
     def eval(self, values, x):
         values[1] = 0.0
         values[0] = 0.0
@@ -171,10 +175,18 @@ def forward(rho):
 
     F = (alpha(rho) * inner(u, v) * dx + mu*inner(grad(u)+grad(u).T, grad(v)) * dx +
          inner(grad(p), v) * dx  + inner(div(u), q) * dx)
-    bc = DirichletBC(W.sub(0), InflowOutflow(degree=1), "on_boundary")
-    l_esq = lhs(F)
-    l_dir = rhs(F)
-    solve(l_esq == l_dir, w_resp, bcs=bc)
+    bc_inflow = InflowOutflow(degree=5)
+    bc = DirichletBC(W.sub(0), bc_inflow, "on_boundary")
+    # l_esq = lhs(F)
+    # l_dir = rhs(F)
+    # solve(l_esq == l_dir, w_resp, bcs=bc)
+    problem = LinearVariationalProblem(lhs(F), rhs(F), w_resp, bc)
+    solver = LinearVariationalSolver(problem)
+    prm=solver.parameters
+    # prm["linear_solver"]= "petsc"
+    # solver.parameters['linear_solver'] = 'lu'
+    # solver.parameters['krylov_solver'] = 'lu'
+    solver.solve()
 
     return w_resp
 
@@ -195,7 +207,6 @@ def cplex_optimize(prob, nvar, my_obj, my_constcoef, my_rlimits, my_ll, my_ul):
     my_colnames = ["x"+str(item) for item in range(nvar)]
     my_sense = ["L", "G"]
     my_rownames = ["r1", "r2"]
-
     prob.variables.add(obj=my_obj, lb=my_ll, ub=my_ul, types=my_ctype,
                        names=my_colnames)
 
@@ -206,7 +217,8 @@ def cplex_optimize(prob, nvar, my_obj, my_constcoef, my_rlimits, my_ll, my_ul):
 
 
 if __name__ == "__main__":
-    rho = interpolate(Distribution(), A)
+    rho_distrib = Distribution()
+    rho = interpolate(rho_distrib, A)
     rho.rename("control", "")
     w_resp   = forward(rho)
     (u, p) = w_resp.split()
@@ -227,7 +239,7 @@ if __name__ == "__main__":
     epsilons = .2
 
     while True:
-        set_working_tape(Tape())
+        # set_working_tape(Tape())
         J = assemble(0.5 * inner(alpha(rho) * u, u) * dx + mu * inner(grad(u), grad(u).T) * dx)
         with open(file_obj_fun_path, "a+") as f:
             f.write(str(float(J))+"\n")

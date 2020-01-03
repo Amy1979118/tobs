@@ -2,13 +2,19 @@ from oct2py import octave
 from dolfin import *
 from mshr import *
 from dolfin_adjoint import *
+from mpi4py import MPI as bruno_mpi
 import numpy as np
 import os
 
 import cplex
 from cplex.exceptions import CplexError
 
+import smooth as sm
+
 # set_log_level(50)
+# parameters["linear_algebra_backend"] = 'Eigen'
+comm = bruno_mpi.COMM_WORLD
+rank = comm.Get_rank()
 
 class Optimizer(object):
 
@@ -122,7 +128,7 @@ class Optimizer(object):
 
 octave.addpath('~')
 parameters["std_out_all_processes"] = False
-pasta = "output_tirando_quadrado/"
+pasta = "output/"
 
 mu = Constant(1.0)                   # viscosity
 alphaunderbar = 2.5 * mu *1.e-4
@@ -133,72 +139,73 @@ def alpha(rho):
     """Inverse permeability as a function of rho, equation (40)"""
     return alphabar + (alphaunderbar - alphabar) * rho * (1 + q) / (rho + q)
 
-N = 40
-delta = 1.0  # The aspect ratio of the domain, 1 high and \delta wide
+N = 60
+delta = 1.5  # The aspect ratio of the domain, 1 high and \delta wide
 V = Constant(1.0/3) * delta  # want the fluid to occupy 1/3 of the domain
 
-# mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(N), int(N), diagonal="right"))
-r1 = Rectangle(Point(0.0, 0.0), Point(delta, 1.0))
-r2 = Rectangle(Point(0.5-.1/2, 0.5-.1/2), Point(0.5+.1/2, 0.5+.1/2))
-shape = r1 #- r2
-mesh = generate_mesh(shape, N)
-mesh = Mesh(mesh)
-
+# mesh = Mesh(BoxMesh(Point(0.0, 0.0, 0.0), Point(delta, 1.0, 1.0), 30, 20, 20), "crossed")
+box = Box(Point(0.0, 0.0, 0.0), Point(delta, 1.0, 1.0))
+# plot(box)
+mesh = Mesh(generate_mesh(box, N))
+File("malha3d.pvd") << mesh
 A = FunctionSpace(mesh, "DG", 0)        # control function space
 
-U_h = VectorElement("CG", mesh.ufl_cell(), 2)
+# U_h = VectorElement("CG", mesh.ufl_cell(), 2)
+eUu = FiniteElement("Lagrange", mesh.ufl_cell(), 1)
+eB = FiniteElement("Bubble", mesh.ufl_cell(), 4)
+U_h = VectorElement(NodalEnrichedElement(eUu, eB))
 P_h = FiniteElement("CG", mesh.ufl_cell(), 1)
 W = FunctionSpace(mesh, U_h*P_h)          # mixed Taylor-Hood function space
 
 # Define the boundary condition on velocity
 
 class InflowOutflow(UserExpression):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
     def eval(self, values, x):
+        values[2] = 0.0
         values[1] = 0.0
         values[0] = 0.0
-        l = 0.2
+        l = 1.0/6.0
         gbar = 1.0
 
-        if x[0] == 0.0 or x[1] == 0.0:
-            if (3.0/4 - l/2) < x[1] < (3.0/4 + l/2):
-                t = x[1] - 3.0/4
-                values[0] = gbar*(1 - (2*t/l)**2)
+        if x[0] == 0.0 or x[0] == delta:
+            if (1.0/4 - l/2) < x[1] < (1.0/4 + l/2) and (1.0/4 - l/2) < x[2] < (1.0/4 + l/2):
+                t = ((x[1]-1/4)**2 + (x[2]-1/4)**2)**0.5
+                values[0] = gbar*(1 - t**2)
 
-            if (3.0/4 - l/2) < x[0] < (3.0/4 + l/2):
-                t = x[0] - 3.0/4
-                values[1] = - gbar*(1 - (2*t/l)**2)
+            if (1.0/4 - l/2) < x[1] < (1.0/4 + l/2) and (3.0/4 - l/2) < x[2] < (3.0/4 + l/2):
+                t = ((x[1]-1/4)**2 + (x[2]-3/4)**2)**0.5
+                values[0] = gbar*(1 - t**2)
+
+            if (3.0/4 - l/2) < x[1] < (3.0/4 + l/2) and (1.0/4 - l/2) < x[2] < (1.0/4 + l/2):
+                t = ((x[1]-3/4)**2 + (x[2]-1/4)**2)**0.5
+                values[0] = gbar*(1 - t**2)
+
+            if (3.0/4 - l/2) < x[1] < (3.0/4 + l/2) and (3.0/4 - l/2) < x[2] < (3.0/4 + l/2):
+                t = ((x[1]-3/4)**2 + (x[2]-3/4)**2)**0.5
+                values[0] = gbar*(1 - t**2)
 
     def value_shape(self):
-        return (2,)
+        return (3,)
 
-def forward(rho, iteration):
+def forward(rho):
     """Solve the forward problem for a given fluid distribution rho(x)."""
     w_resp = Function(W)
-
     (u, p) = TrialFunctions(W)
-    (v, q) = TestFunctions(W)
-    F = (alpha(rho) * inner(u, v) * dx + mu*inner(grad(u)+grad(u).T, grad(v)) * dx +
-            inner(grad(p), v) * dx  + inner(div(u), q) * dx)
-    bc = DirichletBC(W.sub(0), InflowOutflow(degree=5), "on_boundary")
-    solve(lhs(F)==rhs(F), w_resp, bc)
-
-    (u, p) = split(w_resp)
+    # (u, p) = split(w_resp)
     (v, q) = TestFunctions(W)
 
     F = (alpha(rho) * inner(u, v) * dx + mu*inner(grad(u)+grad(u).T, grad(v)) * dx +
-            inner(grad(u)*u, v) * dx +
-            inner(grad(p), v) * dx  + inner(div(u), q) * dx)
-    bc = DirichletBC(W.sub(0), InflowOutflow(degree=5), "on_boundary")
-
+         inner(grad(p), v) * dx  + inner(div(u), q) * dx)
+    inflow = InflowOutflow(degree=5)
+    bc = DirichletBC(W.sub(0), inflow, "on_boundary")
     Jacob = derivative(F, w_resp)
-    problem = NonlinearVariationalProblem(F, w_resp, bc, Jacob)
-    solver = NonlinearVariationalSolver(problem)
-    prm = solver.parameters
-    prm['newton_solver']['absolute_tolerance'] = 1E-8 #10
-    prm['newton_solver']['relative_tolerance'] = 1E-9
-    prm['newton_solver']['maximum_iterations'] = 10000
-    prm['newton_solver']['relaxation_parameter'] = 1.0
-    solver.solve()
+    # solve(l_esq == l_dir, w_resp, bcs=bc)
+
+    solve(lhs(F) == rhs(F), w_resp, bc, solver_parameters= {'linear_solver' : 'mumps'})
+
 
     return w_resp
 
@@ -230,20 +237,36 @@ def cplex_optimize(prob, nvar, my_obj, my_constcoef, my_rlimits, my_ll, my_ul):
 
 
 if __name__ == "__main__":
-    rho = interpolate(Distribution(), A)
+    rho_distrib = Distribution()
+    rho = interpolate(rho_distrib, A)
     rho.rename("control", "")
-    w_resp   = forward(rho, 0)
+    w_resp   = forward(rho)
     (u, p) = w_resp.split()
 
     controls = File(pasta + "control.pvd")
     state_file = File(pasta + "veloc.pvd")
     rho_viz = Function(A, name="ControlVisualisation")
+    u.rename("Velocidade", "")
+    state_file << u
 
     file_obj_fun_path = pasta + "fun_obj.txt"
-    if os.path.exists(file_obj_fun_path):
-        os.remove(file_obj_fun_path)
-    with open(file_obj_fun_path, "a+") as f:
-        f.write("FunObj\n")
+    if rank ==0 :
+        if os.path.exists(file_obj_fun_path):
+            os.remove(file_obj_fun_path)
+        with open(file_obj_fun_path, "a+") as f:
+            f.write("FunObj\n")
+        bruno = 0
+    else:
+        bruno = None
+    bruno = comm.bcast(bruno, root=0)
+
+    file_new_mesh_refined = File(pasta + "new_mesh_refined.pvd")
+    file_regions = File(pasta + "regions.pvd")
+
+    '''import pdb; pdb.set_trace()
+    new_mesh_refined, domain = sm.generate_polygon_refined(rho, mesh, geo="3D")
+    file_new_mesh_refined << new_mesh_refined
+    file_regions << domain'''
 
     controls << rho
 
@@ -271,21 +294,27 @@ if __name__ == "__main__":
         jd = (np.array(fval.obj_dfun()).reshape((-1,1)) + jd_previous)/2 #stabilization
         cs = fval.cst_fval()
         jac = np.array(fval.jacobian()).reshape((-1,1))
-        ans = octave.stokes(
-                nvar,
-                x_L,
-                x_U,
-                fval.cst_num,
-                acst_L,
-                acst_U,
-                j,
-                jd,
-                cs,
-                jac,
-                iteration,
-                epsilons,
-                np.array(rho.vector())
-                )
+
+        if rank == 0:
+            ans = octave.stokes(
+                    nvar,
+                    x_L,
+                    x_U,
+                    fval.cst_num,
+                    acst_L,
+                    acst_U,
+                    j,
+                    jd,
+                    cs,
+                    jac,
+                    iteration,
+                    epsilons,
+                    np.array(rho.vector())
+                    )
+        else:
+            ans = None
+        ans = comm.bcast(ans, root=0)
+
         PythonObjCoeff = ans[0][1] #because [0][0] is the design variable
         PythonConstCoeff = ans[0][2]
         PythonRelaxedLimits = ans[0][3]
@@ -311,7 +340,7 @@ if __name__ == "__main__":
         rho.vector().add_local(np.array(design_variables))
         controls << rho
 
-        w_resp   = forward(rho, iteration)
+        w_resp   = forward(rho)
         (u, p) = w_resp.split()
         u.rename("Velocidade", "")
         state_file << u
@@ -322,4 +351,8 @@ if __name__ == "__main__":
             pass
         iteration += 1
         jd_previous = jd
+
+        '''new_mesh_refined, domain = sm.generate_polygon_refined(rho, mesh)
+        file_new_mesh_refined << new_mesh_refined
+        file_regions << domain'''
 
