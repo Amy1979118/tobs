@@ -139,7 +139,7 @@ def alpha(rho):
     """Inverse permeability as a function of rho, equation (40)"""
     return alphabar + (alphaunderbar - alphabar) * rho * (1 + q) / (rho + q)
 
-N = 60
+N = 80
 delta = 1.5  # The aspect ratio of the domain, 1 high and \delta wide
 V = Constant(1.0/3) * delta  # want the fluid to occupy 1/3 of the domain
 

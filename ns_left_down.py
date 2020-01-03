@@ -8,6 +8,8 @@ import os
 import cplex
 from cplex.exceptions import CplexError
 
+import smooth as sm
+
 # set_log_level(50)
 
 class Optimizer(object):
@@ -133,14 +135,14 @@ def alpha(rho):
     """Inverse permeability as a function of rho, equation (40)"""
     return alphabar + (alphaunderbar - alphabar) * rho * (1 + q) / (rho + q)
 
-N = 40
+N = 60
 delta = 1.0  # The aspect ratio of the domain, 1 high and \delta wide
 V = Constant(1.0/3) * delta  # want the fluid to occupy 1/3 of the domain
 
 # mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(N), int(N), diagonal="right"))
 r1 = Rectangle(Point(0.0, 0.0), Point(delta, 1.0))
 r2 = Rectangle(Point(0.5-.1/2, 0.5-.1/2), Point(0.5+.1/2, 0.5+.1/2))
-shape = r1 #- r2
+shape = r1 - r2
 mesh = generate_mesh(shape, N)
 mesh = Mesh(mesh)
 
@@ -197,7 +199,8 @@ def forward(rho, iteration):
     prm['newton_solver']['absolute_tolerance'] = 1E-8 #10
     prm['newton_solver']['relative_tolerance'] = 1E-9
     prm['newton_solver']['maximum_iterations'] = 10000
-    prm['newton_solver']['relaxation_parameter'] = 1.0
+    prm['newton_solver']['relaxation_parameter'] = 0.5
+    prm['newton_solver']['linear_solver'] = 'mumps'
     solver.solve()
 
     return w_resp
@@ -244,6 +247,13 @@ if __name__ == "__main__":
         os.remove(file_obj_fun_path)
     with open(file_obj_fun_path, "a+") as f:
         f.write("FunObj\n")
+
+    file_new_mesh_refined = File(pasta + "new_mesh_refined.pvd")
+    file_regions = File(pasta + "regions.pvd")
+
+    new_mesh_refined, domain = sm.generate_polygon_refined(rho, mesh, accept_holes=True)
+    file_new_mesh_refined << new_mesh_refined
+    file_regions << domain
 
     controls << rho
 
@@ -322,4 +332,8 @@ if __name__ == "__main__":
             pass
         iteration += 1
         jd_previous = jd
+
+        new_mesh_refined, domain = sm.generate_polygon_refined(rho, mesh, accept_holes=True)
+        file_new_mesh_refined << new_mesh_refined
+        file_regions << domain
 

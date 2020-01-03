@@ -4,5 +4,7 @@
 **/*.pvd
 tags
 output/*.txt
-output*
+output/*.vtu
+output/*.pvd
+output*/
 __pycache__*

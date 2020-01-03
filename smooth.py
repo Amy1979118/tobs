@@ -97,7 +97,7 @@ def get_point(p_index, points):
     else:
         return [points[p_index, 0], points[p_index, 1]]
 
-def generate_polygon(rho, mesh, geo):
+def generate_polygon(rho, mesh, geo='2D', accept_holes=False):
     point_cloud = generate_point_list(rho, mesh)
     if geo == '2D':
         delaunay, planes, polygons = extractPlanesAndPolygons(point_cloud, xyThresh=0.0, alpha=0.0, lmax=0.05, minTriangles=5)
@@ -106,22 +106,35 @@ def generate_polygon(rho, mesh, geo):
         plot_polygons(polygons, delaunay, point_cloud, ax)
         for poly in polygons:
             shell_coords = [get_point(p_index, point_cloud) for p_index in poly.shell]
+            try:
+                poly.holes[0]
+            except:
+                accept_holes=False
+            if accept_holes:
+                hole_coords = [get_point(p_index, point_cloud) for p_index in poly.holes[0]]
         # shape = shape.Polygon([ [item[0], item[1]] for item in shell_coords])
+        # hole_coords = hole_coords[0::2]
+        if accept_holes:
+            shape_hole = Polygon([Point(item[0], item[1]) for item in hole_coords])
+
         shell_coords = shell_coords[0::2]
         shell_coords.reverse()
         shape = Polygon([Point(item[0], item[1]) for item in shell_coords])
-        new_mesh = generate_mesh(shape, 20)
+
+        if accept_holes: new_mesh = generate_mesh(shape - shape_hole, 20)
+        else: new_mesh = generate_mesh(shape, 20)
+
     else:
         raise NotImplementedError()
 
     return new_mesh
 
-def generate_polygon_refined(rho, mesh, geo="2D"):
+def generate_polygon_refined(rho, mesh, geo="2D", accept_holes=False):
     class Border(SubDomain):
         def inside(self, x, on_boundary):
             return on_boundary
 
-    new_mesh = generate_polygon(rho, mesh)
+    new_mesh = generate_polygon(rho, mesh, geo, accept_holes)
     regions = MeshFunction("bool", new_mesh, False)
     regions.set_all(0)
     region_to_refine = Border()
@@ -129,7 +142,7 @@ def generate_polygon_refined(rho, mesh, geo="2D"):
 
     new_mesh_refined = refine(new_mesh, regions)
 
-    domain = MeshFunction("size_t", new_mesh, 1, geo)
+    domain = MeshFunction("size_t", new_mesh, 1)
     domain.set_all(0)
     edge = Border()
     edge.mark(domain, 1)
