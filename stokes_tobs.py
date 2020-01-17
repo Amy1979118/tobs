@@ -30,8 +30,8 @@ class Optimizer(object):
     cst_U = []
     cst_L = []
     cst_num = 0
-    rho = None
-
+    rho = None    
+    
     def __init__(self, fc_xi):        
         self.fc_xi = Function( fc_xi.function_space(), name="Control" )
         self.nvars = len(self.fc_xi.vector())
@@ -77,8 +77,13 @@ class Optimizer(object):
         print('\tRecalculate Objective Function')
         self.objfun_rf(ds_vars) # slow because is a solve
         #Derivada da funcao objetivo
-        print('\tEvaluating Sensibility')
-        dfval = self.objfun_rf.derivative().vector()
+        print('\tEvaluating Sensibility')        
+#        dfval = self.objfun_rf.derivative().vector() # slow because is a solve
+        dfval = self.objfun_rf.derivative() # slow because is a solve
+#        dfval_viz = self.objfun_rf.derivative()
+#        dfval_viz.rename("sensibility", "")
+#        self.sens_viz << dfval_viz
+#        dfval = dfval_viz.vector() # slow because is a solve
         #salva os arquivos de resultados
         if self.file_out is not None:
             self.file_out << self.fc_xi
@@ -128,14 +133,14 @@ mu = Constant(1.0)                   # viscosity
 #alphabar = 2.5 * mu / (0.01**2)      # parameter for \alpha
 alphaunderbar = 0.0
 alphabar = 1.0e5
-q = 1.0 # q value that controls difficulty/discrete-valuedness of solution
+q = 5.0 # q value that controls difficulty/discrete-valuedness of solution
 
 def alpha(rho):
     """Inverse permeability as a function of rho, equation (40)"""
     return Constant(alphabar) + (Constant(alphaunderbar) - Constant(alphabar)) * rho * (1.0 + Constant(q)) / (rho + Constant(q))
 
 #%% Mesh
-N = 14
+N = 15
 delta = 1.5  # The aspect ratio of the domain, 1 high and \delta wide
 
 #mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(15*N), int(10*N), diagonal="crossed"))
@@ -176,6 +181,7 @@ def forward(rho):
          inner(grad(p), v) * dx  + inner(div(u), q) * dx)
     bc = DirichletBC(W.sub(0), InflowOutflow(degree=1), "on_boundary")
     solve(lhs(F) == rhs(F), w_resp, bcs=bc, solver_parameters={'linear_solver':'mumps'})
+#    solve(F==0, w_resp, bcs=bc, solver_parameters={'nonlinear_solver':'snes'})
     return w_resp
 
 class Distribution(UserExpression):
@@ -205,16 +211,17 @@ def cplex_optimize(prob, nvar, my_obj, my_constcoef, my_rlimits, my_ll, my_ul):
 
 def helmholtz_filter(phi):
     print('\n Solve Helmholtz Filter\n')
-    CG1 = FunctionSpace(mesh,"CG", 1)
-    vH = TestFunction(CG1)
+    FS = phi.function_space()
+    vH = TestFunction(FS)
 #    radius = Constant(1.75*dt, name='Filter Radius')
     h = MaxCellEdgeLength(mesh)
+#    h = CellDiameter(mesh)
 #    radius = Constant(1.75*dt, name='Filter Radius')
 #    radius = Constant(2.5*dt, name='Filter Radius')
 #    radius = Constant(2.00*dt, name='Filter Radius')
-    radius = Constant(0.1, name='Filter Radius')
-#    radius = Constant(2.0)*h
-    a_f = Function(CG1, name="Filtered")
+#    radius = Constant(0.1, name='Filter Radius')
+    radius = Constant(1.0)*h
+    a_f = Function(FS, name="Filtered")
 
     F = (
         inner( radius*radius * grad(a_f) , grad(vH) )*dx
@@ -222,7 +229,7 @@ def helmholtz_filter(phi):
         - inner( phi , vH )*dx
     )
 
-    dw = TrialFunction(CG1)
+    dw = TrialFunction(FS)
     J  = derivative(F, a_f, dw)  # Gateaux derivative in dir. of dw
 
     problem = NonlinearVariationalProblem(F, a_f, None, J)
@@ -239,19 +246,21 @@ def helmholtz_filter(phi):
     prm['newton_solver']['linear_solver'] = 'mumps'
     prm['newton_solver']['preconditioner'] = 'default'
 
-    solver.solve()
+    solver.solve(annotate=False)
 
     return a_f
 
 if __name__ == "__main__":
     controls = File(pasta + "control.pvd")
     state_file = File(pasta + "velocity.pvd")
+    sens_file = File(pasta + "sensibility.pvd")
+    sens_filtered_file = File(pasta + "sensibility_filtered.pvd")
     # Set initial guess
     rho = interpolate(Distribution(), A)
     rho.rename("control", "")
     iteration = 0
-    max_iter = 100
-    epsilons = 0.025
+    max_iter = 250
+    epsilons = 0.01
 
     print('\tStart Optimization Loop')
     #%% Opt Loop
@@ -272,13 +281,24 @@ if __name__ == "__main__":
         nvar = len(rho.vector())
         # Objective Funcion
         J = assemble( (0.5 * inner(alpha(rho) * u, u)
-                    + 0.5 * mu * inner(grad(u)+grad(u).T, grad(u)+grad(u).T) )* dx)        
+                    + mu * inner(grad(u), grad(u)) )* dx)        
         fval.add_objfun(J)
 #        j = float(fval.obj_fun(rho.vector()))
         j = float(J)        
 #        if iteration == 0: jd_previous = np.array(fval.obj_dfun()).reshape((-1,1))
 #        jd = (np.array(fval.obj_dfun()).reshape((-1,1)) + jd_previous)/2 #stabilization
-        jd = np.array(fval.obj_dfun()).reshape((-1,1)) # No stabilization        
+#        jd = np.array(fval.obj_dfun()).reshape((-1,1)) # No stabilization
+        
+#        if iteration == 0:
+#            jd_previous = fval.obj_dfun()
+#        jd = (fval.obj_dfun() + jd_previous)/2 #stabilization
+        jd = fval.obj_dfun()
+        jd.rename("sensitivity", "")
+        sens_file << jd
+#        jd = helmholtz_filter(jd)
+#        sens_filtered_file << jd
+        jd = np.array(jd.vector()).reshape((-1,1))
+        
         fval.add_volf_constraint(0.7,0.5)
         x_L = np.ones((nvar), dtype=np.float) * 0.0
         x_U = np.ones((nvar), dtype=np.float) * 1.0
@@ -351,3 +371,8 @@ if __name__ == "__main__":
     print('\tSaving Last Solution')
     state_file << u        
     controls << rho
+    print('\n----------------------------------------')
+    print('----------------------------------------')
+    print('\t END OF OPTIMIZATION')
+    print('----------------------------------------')
+    print('----------------------------------------\n\n')
