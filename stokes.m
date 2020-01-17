@@ -3,11 +3,6 @@ function opt = stokes(nvar, x_L, x_U, cst_num, acst_L, acst_U, obj_fun, obj_dfun
 addpath(genpath('FEA'))
 addpath(genpath('Meshes'))
 addpath(genpath('TopOpt'))
-disp(' ')
-disp('         *****************************')
-disp('         **   Topology Pi - START   **')
-disp('         *****************************')
-disp(' ')
 
 %% --------------------------------------------------------------------- %%
 %                              ** Input **                                %
@@ -16,8 +11,8 @@ disp(' ')
 % Optimization parameters
 %radius = 6;                  % Filter radius in length unit
 %rho_min = 0.001^3;           % Minimum density (for void elements)
-volume_constraint = 3.0e-1; % Compliance (Nm) constraint
-flip_limits = 0.05;               % Flip limits
+volume_constraint = 1.0/3.0; % Compliance (Nm) constraint
+flip_limits = epsilons;               % Flip limits
 
 %% --------------------------------------------------------------------- %%
 %                         ** Problem set up **                            %
@@ -30,17 +25,9 @@ tobs = TOBS(volume_constraint, epsilons, flip_limits, nvar);
 %                           ** Optimization **                            %
 %-------------------------------------------------------------------------%
 
-disp(' ')
-disp('         *** Optimization loop *** ')
-disp(' ')
-
-tobs.design_variables = rho
+tobs.design_variables = rho;
 tobs.objective = obj_fun;
 tobs.objective_sensitivities = obj_dfun;
-
-% Print optimization status on the screen
-disp([' It.: ' sprintf('%3i',iteration) '  Obj.: ' sprintf('%5.4f',full(tobs.objective))...
-    '  Vol.: ' ])
 
 % Optimization loop %
 
