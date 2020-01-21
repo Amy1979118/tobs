@@ -30,21 +30,21 @@ class Optimizer(object):
     cst_U = []
     cst_L = []
     cst_num = 0
-    rho = None    
-    
-    def __init__(self, fc_xi):        
-        self.fc_xi = Function( fc_xi.function_space(), name="Control" )
+    rho = None
+
+    def __init__(self, fc_xi):
+        self.fc_xi = Function(fc_xi.function_space(), name="Control")
         self.nvars = len(self.fc_xi.vector())
         self.control = Control(fc_xi)
 
-    def __check_ds_vars__(self):        
+    def __check_ds_vars__(self):
         chk_var = False
         if self.xi_array is None:
             self.xi_array = np.copy(self.rho)
             chk_var = True
         else:
             xi_eval = self.xi_array - self.rho
-            xi_nrm  = np.linalg.norm(xi_eval)
+            xi_nrm = np.linalg.norm(xi_eval)
             if xi_nrm > 1e-16:
                 self.xi_array = np.copy(self.rho)
                 chk_var = True      #A variavel de projeto ja foi carregada
@@ -52,12 +52,12 @@ class Optimizer(object):
             self.fc_xi.vector()[:] = self.rho
         else:
             pass
-        ds_vars = self.fc_xi        
+        ds_vars = self.fc_xi
         return ds_vars
 
-    def __vf_fun_var_assem__(self):             
-        fc_xi_tst   = TestFunction(self.fc_xi.function_space())
-        self.vol_xi  = assemble(fc_xi_tst * Constant(1.0) * dx)
+    def __vf_fun_var_assem__(self):
+        fc_xi_tst = TestFunction(self.fc_xi.function_space())
+        self.vol_xi = assemble(fc_xi_tst * Constant(1.0) * dx)
         self.vol_sum = self.vol_xi.sum()
 
     def add_plot_res(self, file_out):
@@ -66,18 +66,18 @@ class Optimizer(object):
     def add_objfun(self, AD_Obj_fx):
         self.objfun_rf = ReducedFunctional(AD_Obj_fx, self.control)
 
-    def obj_fun(self, user_data=None):        
-        ds_vars = self.__check_ds_vars__()        
+    def obj_fun(self, user_data=None):
+        ds_vars = self.__check_ds_vars__()
         fval = self.objfun_rf(ds_vars) # slow because is a solve
         self.iter_fobj += 1
         return fval
 
-    def obj_dfun(self, user_data=None):        
-        ds_vars  = self.__check_ds_vars__()
+    def obj_dfun(self, user_data=None):
+        ds_vars = self.__check_ds_vars__()
         print('\tRecalculate Objective Function')
         self.objfun_rf(ds_vars) # slow because is a solve
         #Derivada da funcao objetivo
-        print('\tEvaluating Sensibility')        
+        print('\tEvaluating Sensibility')
 #        dfval = self.objfun_rf.derivative().vector() # slow because is a solve
         dfval = self.objfun_rf.derivative() # slow because is a solve
 #        dfval_viz = self.objfun_rf.derivative()
@@ -91,18 +91,18 @@ class Optimizer(object):
         self.iter_dobj += 1
         return dfval
 
-    def add_volf_constraint(self, upp, lwr):        
+    def add_volf_constraint(self, upp, lwr):
         self.__vf_fun_var_assem__()
         self.cst_U.append(upp)
         self.cst_L.append(lwr)
         self.cst_num += 1
 
-    def volfrac_fun(self):        
+    def volfrac_fun(self):
         self.__check_ds_vars__()
-        volume_val = float( self.vol_xi.inner( self.fc_xi.vector() ) )
+        volume_val = float(self.vol_xi.inner(self.fc_xi.vector()))
         return volume_val/self.vol_sum
 
-    def volfrac_dfun(self, user_data=None):        
+    def volfrac_dfun(self, user_data=None):
         v_df = self.vol_xi/self.vol_sum
         return v_df
 
@@ -113,11 +113,11 @@ class Optimizer(object):
         cols = range(self.nvars) * self.cst_num
         return (np.array(rows, dtype=np.int), np.array(cols, dtype=np.int))
 
-    def cst_fval(self, user_data=None):        
+    def cst_fval(self, user_data=None):
         cst_val = np.array(self.volfrac_fun(), dtype=np.float)
         return cst_val.T
 
-    def jacobian(self, flag=False, user_data=None):        
+    def jacobian(self, flag=False, user_data=None):
         if flag:
             dfval = self.flag_jacobian()
         else:
@@ -129,24 +129,25 @@ pasta = "output/"
 
 #%% Material parameters
 mu = Constant(1.0)                   # viscosity
-#alphaunderbar = 2.5 * mu / (100**2)  # parameter for \alpha 
+#alphaunderbar = 2.5 * mu / (100**2)  # parameter for \alpha
 #alphabar = 2.5 * mu / (0.01**2)      # parameter for \alpha
 alphaunderbar = 0.0
 alphabar = 1.0e5
-q = 5.0 # q value that controls difficulty/discrete-valuedness of solution
+q = 1.0 # q value that controls difficulty/discrete-valuedness of solution
 
 def alpha(rho):
     """Inverse permeability as a function of rho, equation (40)"""
     return Constant(alphabar) + (Constant(alphaunderbar) - Constant(alphabar)) * rho * (1.0 + Constant(q)) / (rho + Constant(q))
 
 #%% Mesh
-N = 15
+N = 10
 delta = 1.5  # The aspect ratio of the domain, 1 high and \delta wide
 
 #mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(15*N), int(10*N), diagonal="crossed"))
-#mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(15*N), int(10*N), diagonal="left/right"))
+mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(15*N+1), int(10*N+1), diagonal="left/right"))
 
-mesh = RectangleMesh.create([Point(0.0,0.0),Point(delta,1.0)], [int(15*N+1),int(10*N+1)], CellType.Type.quadrilateral)
+# mesh = RectangleMesh.create([Point(0.0,0.0),Point(delta,1.0)], [int(15*N+1),int(10*N+1)], CellType.Type.quadrilateral)
+
 mesh = Mesh(mesh)
 
 A = FunctionSpace(mesh, "DG", 0) # control function space
@@ -167,7 +168,7 @@ class InflowOutflow(UserExpression):
             if (3.0/4 - l/2) < x[1] < (3.0/4 + l/2):
                 t = x[1] - 3.0/4
                 values[0] = gbar*(1 - (2*t/l)**2)
-    
+
     def value_shape(self):
         return (2,)
 
@@ -200,13 +201,13 @@ def cplex_optimize(prob, nvar, my_obj, my_constcoef, my_rlimits, my_ll, my_ul):
     my_colnames = ["x"+str(item) for item in range(nvar)]
     my_sense = ["L", "G"]
     my_rownames = ["r1", "r2"]
-    
+
     prob.variables.add(obj=my_obj, lb=my_ll, ub=my_ul, types=my_ctype,
                        names=my_colnames)
-    
+
     rows = [cplex.SparsePair(ind=["x"+str(item) for item in range(nvar)], val = my_constcoef[0]),
             cplex.SparsePair(ind=["x"+str(item) for item in range(nvar)], val = my_constcoef[1])]
-    
+
     prob.linear_constraints.add(lin_expr=rows, senses=my_sense, rhs=my_rlimits, names=my_rownames)
 
 def helmholtz_filter(phi):
@@ -224,16 +225,16 @@ def helmholtz_filter(phi):
     a_f = Function(FS, name="Filtered")
 
     F = (
-        inner( radius*radius * grad(a_f) , grad(vH) )*dx
-        + inner( a_f , vH )*dx
-        - inner( phi , vH )*dx
+        inner(radius*radius * grad(a_f), grad(vH))*dx
+        + inner(a_f, vH)*dx
+        - inner(phi, vH)*dx
     )
 
     dw = TrialFunction(FS)
-    J  = derivative(F, a_f, dw)  # Gateaux derivative in dir. of dw
+    J = derivative(F, a_f, dw)  # Gateaux derivative in dir. of dw
 
     problem = NonlinearVariationalProblem(F, a_f, None, J)
-    solver  = NonlinearVariationalSolver(problem)
+    solver = NonlinearVariationalSolver(problem)
 
     prm = solver.parameters
     prm['nonlinear_solver'] = 'newton'
@@ -258,73 +259,74 @@ if __name__ == "__main__":
     # Set initial guess
     rho = interpolate(Distribution(), A)
     rho.rename("control", "")
-    iteration = 0
-    max_iter = 250
-    epsilons = 0.01
-
     print('\tStart Optimization Loop')
     #%% Opt Loop
+    # Opt parameters
+    iteration = 0
+    max_iter = 150
+    epsilons = 0.02
     opt_convergence = False
+    Fobj_values = []
+    Vol_constraint_values = []
     while opt_convergence is False:
-        set_working_tape(Tape()) # Create new Tape for Adjoint        
-        print ('\tForward Problem')
-        w_resp   = forward(rho)
+        set_working_tape(Tape()) # Create new Tape for Adjoint
+        print('\tForward Problem')
+        w_resp = forward(rho)
         (u, p) = w_resp.split()
         u.rename("velocity", "")
         rho.rename("control", "")
-        print('\tSaving Files')
-        state_file << u        
-        controls << rho
+
         # Create Opt Object
-        fval = Optimizer(rho)        
+        fval = Optimizer(rho)
         fval.rho = rho.vector()
         nvar = len(rho.vector())
         # Objective Funcion
-        J = assemble( (0.5 * inner(alpha(rho) * u, u)
-                    + mu * inner(grad(u), grad(u)) )* dx)        
+        J = assemble((0.5*inner(alpha(rho)*u, u) + mu*inner(grad(u), grad(u)))*dx)
         fval.add_objfun(J)
-#        j = float(fval.obj_fun(rho.vector()))
-        j = float(J)        
-#        if iteration == 0: jd_previous = np.array(fval.obj_dfun()).reshape((-1,1))
-#        jd = (np.array(fval.obj_dfun()).reshape((-1,1)) + jd_previous)/2 #stabilization
-#        jd = np.array(fval.obj_dfun()).reshape((-1,1)) # No stabilization
-        
-#        if iteration == 0:
-#            jd_previous = fval.obj_dfun()
-#        jd = (fval.obj_dfun() + jd_previous)/2 #stabilization
+
+        j = float(J)
+        Fobj_values.append(j)        
+
         jd = fval.obj_dfun()
         jd.rename("sensitivity", "")
+
+        print('\tSaving Files')
+        state_file << u
+        controls << rho
         sens_file << jd
+
 #        jd = helmholtz_filter(jd)
 #        sens_filtered_file << jd
-        jd = np.array(jd.vector()).reshape((-1,1))
-        
-        fval.add_volf_constraint(0.7,0.5)
+        jd = np.array(jd.vector()).reshape((-1, 1))
+        fval.add_volf_constraint(0.7, 0.5)
         x_L = np.ones((nvar), dtype=np.float) * 0.0
         x_U = np.ones((nvar), dtype=np.float) * 1.0
         acst_L = np.array(fval.cst_L)
-        acst_U = np.array(fval.cst_U)        
-        cs = fval.cst_fval()        
-        jac = np.array(fval.jacobian()).reshape((-1,1))
+        acst_U = np.array(fval.cst_U)
+        cs = fval.cst_fval()
+        jac = np.array(fval.jacobian()).reshape((-1, 1))
+        
+        vol_frac = fval.volfrac_fun()
+        Vol_constraint_values.append(vol_frac)
 
-        print ('\n\tIter: %3.d \tObj Func: %.4f \tVol Frac: %.4f' %(iteration, j, fval.volfrac_fun()))
+        print('\n\tIter: %3.d \tObj Func: %.4f \tVol Frac: %.4f' %(iteration, j, vol_frac))
 
         ans = octave.stokes(
-                nvar,
-                x_L,
-                x_U,
-                fval.cst_num,
-                acst_L,
-                acst_U,
-                j,
-                jd,
-                cs,
-                jac,
-                iteration,
-                epsilons,
-                np.array(rho.vector())
-                )
-        
+            nvar,
+            x_L,
+            x_U,
+            fval.cst_num,
+            acst_L,
+            acst_U,
+            j,
+            jd,
+            cs,
+            jac,
+            iteration,
+            epsilons,
+            np.array(rho.vector())
+            )
+
         # Cplex variables
         PythonObjCoeff = ans[0][1] #because [0][0] is the design variable
         PythonConstCoeff = ans[0][2]
@@ -339,7 +341,7 @@ if __name__ == "__main__":
         #my_prob.set_error_stream(None)
         #my_prob.set_warning_stream(None)
         my_prob.set_results_stream(None)
-        
+
         # cplex parameters
 
         coef = [item[0] for item in PythonObjCoeff.tolist()]
@@ -363,14 +365,25 @@ if __name__ == "__main__":
         jd_previous = jd
         print('\n----------------------------------------')
 
-    print ('\tForward Problem')
-    w_resp   = forward(rho)
+    print('\tForward Problem')
+    w_resp = forward(rho)
     (u, p) = w_resp.split()
     u.rename("velocity", "")
     rho.rename("control", "")
     print('\tSaving Last Solution')
-    state_file << u        
+    state_file << u
     controls << rho
+    
+    print('\tSaving Convergence History to File')
+    with open(pasta+'Fobj.txt', 'w') as f:
+        for value in Fobj_values: 
+            f.write('%s\n' %value)
+            
+    print('\tSaving Volume Fraction History to File')
+    with open(pasta+'Vol_constraint.txt', 'w') as f:
+        for value in Vol_constraint_values: 
+            f.write('%s\n' %value)
+            
     print('\n----------------------------------------')
     print('----------------------------------------')
     print('\t END OF OPTIMIZATION')

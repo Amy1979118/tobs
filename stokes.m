@@ -9,10 +9,9 @@ addpath(genpath('TopOpt'))
 %-------------------------------------------------------------------------%
 
 % Optimization parameters
-%radius = 6;                  % Filter radius in length unit
-%rho_min = 0.001^3;           % Minimum density (for void elements)
-volume_constraint = 1.0/3.0; % Compliance (Nm) constraint
-flip_limits = epsilons;               % Flip limits
+volume_constraint = 1.0/3.0; % Volume constraint
+flip_limits = epsilons;      % Flip limits
+flip_limits = 0.01;      % Flip limits
 
 %% --------------------------------------------------------------------- %%
 %                         ** Problem set up **                            %
@@ -29,15 +28,13 @@ tobs.design_variables = rho;
 tobs.objective = obj_fun;
 tobs.objective_sensitivities = obj_dfun;
 
-% Optimization loop %
-
 % Convergence identifiers
 is_converged = 0;
 difference = 1;
 
 loop = iteration;
 
-% Constraint (compliance) and sensitivities
+% Constraint and sensitivities
 tobs.constraints = speye (1)*cst_fval;
 tobs.constraints_sensitivities = jacobian;
 
