@@ -9,22 +9,19 @@ from cplex.exceptions import CplexError
 parameters["std_out_all_processes"] = False # turn off redundant output in parallel
 parameters["form_compiler"]["optimize"] = True
 parameters["form_compiler"]["cpp_optimize"] = True
-#parameters["form_compiler"]["cpp_optimize_flags"] = "-O3 -ffast-math -march=native"
+parameters["form_compiler"]["cpp_optimize_flags"] = "-O3 -ffast-math -march=native"
 parameters['form_compiler']['representation'] = 'uflacs'
 parameters["ghost_mode"] = "shared_facet"
 
 # dolfin log level
-#set_log_level(LogLevel.ERROR)
+set_log_level(LogLevel.ERROR)
 #set_log_level(LogLevel.PROGRESS)
 #set_log_level(LogLevel.DEBUG)
 #set_log_level(LogLevel.INFO)
 
-class Optimizer(object):
+class Optimizer():
 
     objfun_rf = None        #Objective Functions
-    iter_fobj = 0
-    iter_dobj = 0
-    file_out = None         #Results file output
     xi_array = None         #Design Variables
     vf_fun = None
     cst_U = []
@@ -60,19 +57,15 @@ class Optimizer(object):
         self.vol_xi = assemble(fc_xi_tst * Constant(1.0) * dx)
         self.vol_sum = self.vol_xi.sum()
 
-    def add_plot_res(self, file_out):
-        self.file_out = file_out
-
     def add_objfun(self, AD_Obj_fx):
         self.objfun_rf = ReducedFunctional(AD_Obj_fx, self.control)
 
-    def obj_fun(self, user_data=None):
+    def obj_fun(self):
         ds_vars = self.__check_ds_vars__()
         fval = self.objfun_rf(ds_vars) # slow because is a solve
-        self.iter_fobj += 1
         return fval
 
-    def obj_dfun(self, user_data=None):
+    def obj_dfun(self):
         ds_vars = self.__check_ds_vars__()
         print('\tRecalculate Objective Function')
         self.objfun_rf(ds_vars) # slow because is a solve
@@ -80,15 +73,6 @@ class Optimizer(object):
         print('\tEvaluating Sensibility')
 #        dfval = self.objfun_rf.derivative().vector() # slow because is a solve
         dfval = self.objfun_rf.derivative() # slow because is a solve
-#        dfval_viz = self.objfun_rf.derivative()
-#        dfval_viz.rename("sensibility", "")
-#        self.sens_viz << dfval_viz
-#        dfval = dfval_viz.vector() # slow because is a solve
-        #salva os arquivos de resultados
-        if self.file_out is not None:
-            self.file_out << self.fc_xi
-        # contador do numero de iteracoes
-        self.iter_dobj += 1
         return dfval
 
     def add_volf_constraint(self, upp, lwr):
@@ -102,7 +86,7 @@ class Optimizer(object):
         volume_val = float(self.vol_xi.inner(self.fc_xi.vector()))
         return volume_val/self.vol_sum
 
-    def volfrac_dfun(self, user_data=None):
+    def volfrac_dfun(self):
         v_df = self.vol_xi/self.vol_sum
         return v_df
 
@@ -113,11 +97,11 @@ class Optimizer(object):
         cols = range(self.nvars) * self.cst_num
         return (np.array(rows, dtype=np.int), np.array(cols, dtype=np.int))
 
-    def cst_fval(self, user_data=None):
+    def cst_fval(self):
         cst_val = np.array(self.volfrac_fun(), dtype=np.float)
         return cst_val.T
 
-    def jacobian(self, flag=False, user_data=None):
+    def jacobian(self, flag=False):
         if flag:
             dfval = self.flag_jacobian()
         else:
@@ -125,7 +109,7 @@ class Optimizer(object):
         return dfval
 
 octave.addpath('~')
-pasta = "output/"
+pasta = "results/output/"
 
 #%% Material parameters
 mu = Constant(1.0)                   # viscosity
@@ -140,15 +124,15 @@ def alpha(rho):
     return Constant(alphabar) + (Constant(alphaunderbar) - Constant(alphabar)) * rho * (1.0 + Constant(q)) / (rho + Constant(q))
 
 #%% Mesh
-N = 10
+N = 20
 delta = 1.5  # The aspect ratio of the domain, 1 high and \delta wide
 
-#mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(15*N), int(10*N), diagonal="crossed"))
-mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(15*N+1), int(10*N+1), diagonal="left/right"))
+# mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(15*N), int(10*N), diagonal="crossed"))
+# mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(15*N+1), int(10*N+1), diagonal="left/right"))
 
-# mesh = RectangleMesh.create([Point(0.0,0.0),Point(delta,1.0)], [int(15*N+1),int(10*N+1)], CellType.Type.quadrilateral)
+mesh = Mesh(RectangleMesh.create([Point(0.0,0.0),Point(delta,1.0)], [int(15*N+1),int(10*N+1)], CellType.Type.quadrilateral))
 
-mesh = Mesh(mesh)
+# mesh = Mesh(mesh)
 
 A = FunctionSpace(mesh, "DG", 0) # control function space
 U_h = VectorElement("CG", mesh.ufl_cell(), 2)
@@ -182,7 +166,7 @@ def forward(rho):
          inner(grad(p), v) * dx  + inner(div(u), q) * dx)
     bc = DirichletBC(W.sub(0), InflowOutflow(degree=1), "on_boundary")
     solve(lhs(F) == rhs(F), w_resp, bcs=bc, solver_parameters={'linear_solver':'mumps'})
-#    solve(F==0, w_resp, bcs=bc, solver_parameters={'nonlinear_solver':'snes'})
+    # solve(F==0, w_resp, bcs=bc, solver_parameters={'nonlinear_solver':'snes'})
     return w_resp
 
 class Distribution(UserExpression):
@@ -214,13 +198,13 @@ def helmholtz_filter(phi):
     print('\n Solve Helmholtz Filter\n')
     FS = phi.function_space()
     vH = TestFunction(FS)
-#    radius = Constant(1.75*dt, name='Filter Radius')
+    # radius = Constant(1.75*dt, name='Filter Radius')
     h = MaxCellEdgeLength(mesh)
-#    h = CellDiameter(mesh)
-#    radius = Constant(1.75*dt, name='Filter Radius')
-#    radius = Constant(2.5*dt, name='Filter Radius')
-#    radius = Constant(2.00*dt, name='Filter Radius')
-#    radius = Constant(0.1, name='Filter Radius')
+    # h = CellDiameter(mesh)
+    # radius = Constant(1.75*dt, name='Filter Radius')
+    # radius = Constant(2.5*dt, name='Filter Radius')
+    # radius = Constant(2.00*dt, name='Filter Radius')
+    # radius = Constant(0.1, name='Filter Radius')
     radius = Constant(1.0)*h
     a_f = Function(FS, name="Filtered")
 
@@ -263,9 +247,14 @@ if __name__ == "__main__":
     #%% Opt Loop
     # Opt parameters
     iteration = 0
-    max_iter = 150
-    epsilons = 0.02
+    max_iter = 300
+    save_n_iter = 10
+    epsilons = 0.01
     opt_convergence = False
+    N_history = 10
+    opt_eps = 0.001
+    difference = 1.0
+    Fobj_mean = 0
     Fobj_values = []
     Vol_constraint_values = []
     while opt_convergence is False:
@@ -285,18 +274,19 @@ if __name__ == "__main__":
         fval.add_objfun(J)
 
         j = float(J)
-        Fobj_values.append(j)        
+        Fobj_values.append(j)
 
         jd = fval.obj_dfun()
         jd.rename("sensitivity", "")
 
-        print('\tSaving Files')
-        state_file << u
-        controls << rho
-        sens_file << jd
+        if (iteration % save_n_iter == 0 or iteration == 1):
+            print('\tSaving Files')
+            state_file << u
+            controls << rho
+            sens_file << jd
 
-#        jd = helmholtz_filter(jd)
-#        sens_filtered_file << jd
+        # jd = helmholtz_filter(jd)
+        # sens_filtered_file << jd
         jd = np.array(jd.vector()).reshape((-1, 1))
         fval.add_volf_constraint(0.7, 0.5)
         x_L = np.ones((nvar), dtype=np.float) * 0.0
@@ -305,11 +295,26 @@ if __name__ == "__main__":
         acst_U = np.array(fval.cst_U)
         cs = fval.cst_fval()
         jac = np.array(fval.jacobian()).reshape((-1, 1))
-        
+
         vol_frac = fval.volfrac_fun()
         Vol_constraint_values.append(vol_frac)
 
         print('\n\tIter: %3.d \tObj Func: %.4f \tVol Frac: %.4f' %(iteration, j, vol_frac))
+
+        if (iteration >= 2*N_history): # Opt convergence criteria from Picelli
+            error_1 = np.zeros(N_history)
+            error_2 = np.zeros(N_history)
+            for iter2 in range(N_history):
+                error_1[iter2] = Fobj_values[iteration-iter2]-Fobj_values[iteration-iter2-N_history]
+                error_2[iter2] = Fobj_values[iteration-iter2]
+            print('\tSum_Error1 = %.4f \tSum_Error2 = %.4f'%(abs(np.sum(error_1)), abs(np.sum(error_2))))
+            difference = abs(np.sum(error_1))/abs(np.sum(error_2))
+            print('\tOpt convergence = %.4f' %difference)
+        if (difference <= opt_eps):
+            opt_convergence = True
+            print(opt_convergence)
+            # print('Stopped in iteration '+str(iter)+' of '+str(len(Fobj)))
+            # break
 
         ans = octave.stokes(
             nvar,
@@ -361,8 +366,8 @@ if __name__ == "__main__":
 
         if iteration >= max_iter:
             opt_convergence = True
-        else: iteration += 1
-        jd_previous = jd
+        else:
+            iteration += 1
         print('\n----------------------------------------')
 
     print('\tForward Problem')
@@ -373,17 +378,19 @@ if __name__ == "__main__":
     print('\tSaving Last Solution')
     state_file << u
     controls << rho
-    
+
     print('\tSaving Convergence History to File')
     with open(pasta+'Fobj.txt', 'w') as f:
-        for value in Fobj_values: 
+        f.write('Objective Function\n')
+        for value in Fobj_values:
             f.write('%s\n' %value)
-            
+
     print('\tSaving Volume Fraction History to File')
     with open(pasta+'Vol_constraint.txt', 'w') as f:
-        for value in Vol_constraint_values: 
+        f.write('Volume\n')
+        for value in Vol_constraint_values:
             f.write('%s\n' %value)
-            
+
     print('\n----------------------------------------')
     print('----------------------------------------')
     print('\t END OF OPTIMIZATION')
