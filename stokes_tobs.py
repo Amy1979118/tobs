@@ -224,7 +224,7 @@ if __name__ == "__main__":
     controls << rho
 
     iteration = 0
-    epsilons = .2
+    epsilons = .1
 
     while True:
         set_working_tape(Tape())
