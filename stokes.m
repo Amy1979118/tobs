@@ -1,4 +1,4 @@
-function opt = stokes(nvar, x_L, x_U, cst_num, acst_L, acst_U, obj_fun, obj_dfun, cst_fval, jacobian, iteration, epsilons, rho)
+function opt = stokes(nvar, x_L, x_U, cst_num, obj_fun, obj_dfun, cst_fval, jacobian, volume_constraint, iteration, epsilons, rho, flip_limits)
 
 addpath(genpath('FEA'))
 addpath(genpath('Meshes'))
@@ -16,8 +16,6 @@ disp(' ')
 % Optimization parameters
 %radius = 6;                  % Filter radius in length unit
 %rho_min = 0.001^3;           % Minimum density (for void elements)
-volume_constraint = 1/3; % Compliance (Nm) constraint
-flip_limits = 0.01;               % Flip limits
 
 %% --------------------------------------------------------------------- %%
 %                         ** Problem set up **                            %

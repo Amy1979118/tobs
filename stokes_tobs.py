@@ -6,6 +6,7 @@ import os
 
 import cplex
 from cplex.exceptions import CplexError
+from read_param_file import *
 
 set_log_level(50)
 
@@ -28,21 +29,7 @@ class Optimizer(object):
         self.control = Control(fc_xi)
 
     def __check_ds_vars__(self):
-        chk_var = False
-        if self.xi_array is None:
-            self.xi_array = np.copy(self.rho)
-            chk_var = True
-        else:
-            xi_eval = self.xi_array - self.rho
-            xi_nrm  = np.linalg.norm(xi_eval)
-            if xi_nrm > 1e-16:
-                self.xi_array = np.copy(self.rho)
-                chk_var = True      #A variavel de projeto ja foi carregada
-
-        if chk_var is True:
-            self.fc_xi.vector()[:] = self.rho
-        else:
-            pass
+        self.fc_xi.vector()[:] = self.rho
         ds_vars = self.fc_xi
         return ds_vars
 
@@ -70,6 +57,9 @@ class Optimizer(object):
         self.objfun_rf(ds_vars)
         #Derivada da funcao objetivo
         dfval = self.objfun_rf.derivative().vector()
+        var_temp = self.objfun_rf.derivative()
+        var_temp.rename("sensibility", "sensibility")
+        file_sen << var_temp
         #salva os arquivos de resultados
         if self.file_out is not None:
             self.file_out << self.fc_xi
@@ -78,31 +68,21 @@ class Optimizer(object):
 
         return dfval
 
-    def add_volf_constraint(self, upp, lwr):
-        self.__vf_fun_var_assem__()
-
-        self.cst_U.append(upp)
-        self.cst_L.append(lwr)
-
-        self.cst_num += 1
-
     def volfrac_fun(self):
 
-        self.__check_ds_vars__()
+        ds_vars = self.__check_ds_vars__()
 
-        volume_val = float( self.vol_xi.inner( self.fc_xi.vector() ) )
+        fc_xi_tst = TestFunction(ds_vars.function_space())
+        volume_val  = assemble(fc_xi_tst * ds_vars * dx).sum()
 
-        return volume_val/self.vol_sum
+        return volume_val
 
     def volfrac_dfun(self, user_data=None):
-        v_df = self.vol_xi/self.vol_sum
+        ds_vars = self.__check_ds_vars__()
+        fc_xi_tst = TestFunction(ds_vars.function_space())
+        volume_val  = np.array(assemble(fc_xi_tst * Constant(1.0) * dx))
+        v_df = volume_val
         return v_df
-
-    def flag_jacobian(self):
-        rows = []
-        for i in range(self.cst_num):
-            rows += [i] * self.nvars
-        cols = range(self.nvars) * self.cst_num
 
         return (np.array(rows, dtype=np.int), np.array(cols, dtype=np.int))
 
@@ -111,32 +91,28 @@ class Optimizer(object):
 
         return cst_val.T
 
-    def jacobian(self, flag=False, user_data=None):
-        if flag:
-            dfval = self.flag_jacobian()
-        else:
-            dfval = self.volfrac_dfun()
-
-        return dfval
-
 octave.addpath('~')
 parameters["std_out_all_processes"] = False
-pasta = "output/"
+mu = Constant(1.0)
 
-mu = Constant(1.0)                   # viscosity
-alphaunderbar = 2.5 * mu *1.e-4
-alphabar = 2.5 * mu * 1e4
-q = Constant(1.0) # q value that controls difficulty/discrete-valuedness of solution
+beta = float(linha[1])# 0.2
+epsilons =float(linha[2])# 0.1
+delta =float(linha[3])# 1.0
+N = float(linha[4])# 30
+N = 30
+alphabar = Constant(float(linha[5]))# 2.5 * mu * 1e3
+
+q = Constant(0.01) # q value that controls difficulty/discrete-valuedness of solution
+
+pasta = "output_beta"+str(beta)+"_eps"+str(epsilons)+"_delta"+str(delta)+ "iter_160" + "_N=" + str(N) +"_alphabar"+ str(alphabar) + "_q="+ str(float(q)) +"kkk/"
+
+alphaunderbar = 2.5 * mu *1.e-2
 
 def alpha(rho):
     """Inverse permeability as a function of rho, equation (40)"""
     return alphabar + (alphaunderbar - alphabar) * rho * (1 + q) / (rho + q)
 
-N = 80
-delta = 1.5  # The aspect ratio of the domain, 1 high and \delta wide
-V = Constant(1.0/3) * delta  # want the fluid to occupy 1/3 of the domain
-
-mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(N*3/2), N, diagonal="right"))
+mesh = Mesh(RectangleMesh(Point(0.0, 0.0), Point(delta, 1.0), int(N*delta), int(N), diagonal="right"))
 A = FunctionSpace(mesh, "DG", 0)        # control function space
 
 U_h = VectorElement("CG", mesh.ufl_cell(), 2)
@@ -193,7 +169,7 @@ def cplex_optimize(prob, nvar, my_obj, my_constcoef, my_rlimits, my_ll, my_ul):
 
     my_ctype = "I"*nvar
     my_colnames = ["x"+str(item) for item in range(nvar)]
-    my_sense = ["L", "G"]
+    my_sense = ["L", "L"]
     my_rownames = ["r1", "r2"]
 
     prob.variables.add(obj=my_obj, lb=my_ll, ub=my_ul, types=my_ctype,
@@ -211,6 +187,7 @@ if __name__ == "__main__":
     w_resp   = forward(rho)
     (u, p) = w_resp.split()
 
+    file_sen = File(pasta + "sensibility.pvd")
     controls = File(pasta + "control.pvd")
     state_file = File(pasta + "veloc.pvd")
     rho_viz = Function(A, name="ControlVisualisation")
@@ -219,48 +196,46 @@ if __name__ == "__main__":
     if os.path.exists(file_obj_fun_path):
         os.remove(file_obj_fun_path)
     with open(file_obj_fun_path, "a+") as f:
-        f.write("FunObj\n")
+        f.write("FunObj \t VolCstr(%)\n")
 
     controls << rho
 
     iteration = 0
-    epsilons = .1
+    j_previous = 0
 
     while True:
-        set_working_tape(Tape())
-        J = assemble(0.5 * inner(alpha(rho) * u, u) * dx + mu * inner(grad(u), grad(u).T) * dx)
-        with open(file_obj_fun_path, "a+") as f:
-            f.write(str(float(J))+"\n")
+        J = assemble(inner(alpha(rho) * u, u) * dx +\
+                0.5*(mu * inner(grad(u)+ grad(u).T, grad(u)+ grad(u).T) ) * dx)
 
         nvar = len(rho.vector())
 
         fval = Optimizer(rho)
         fval.add_objfun(J)
-        fval.add_volf_constraint(0.7,0.5)
+        fval.vol_constraint = 1./3 * delta
         fval.rho = rho.vector()
         x_L = np.ones((nvar), dtype=np.float) * 0.0
         x_U = np.ones((nvar), dtype=np.float) * 1.0
-        acst_L = np.array(fval.cst_L)
-        acst_U = np.array(fval.cst_U)
         j = float(fval.obj_fun(rho.vector()))
         if iteration == 0: jd_previous = np.array(fval.obj_dfun()).reshape((-1,1))
         jd = (np.array(fval.obj_dfun()).reshape((-1,1)) + jd_previous)/2 #stabilization
         cs = fval.cst_fval()
-        jac = np.array(fval.jacobian()).reshape((-1,1))
+        jac = np.array(fval.volfrac_dfun()).reshape((-1,1))
+        with open(file_obj_fun_path, "a+") as f:
+            f.write(str(float(J))+"\t" + str(cs/delta*100) + "\n")
         ans = octave.stokes(
                 nvar,
                 x_L,
                 x_U,
                 fval.cst_num,
-                acst_L,
-                acst_U,
                 j,
                 jd,
                 cs,
                 jac,
+                fval.vol_constraint,
                 iteration,
                 epsilons,
-                np.array(rho.vector())
+                np.array(rho.vector()),
+                beta
                 )
         PythonObjCoeff = ans[0][1] #because [0][0] is the design variable
         PythonConstCoeff = ans[0][2]
@@ -287,15 +262,24 @@ if __name__ == "__main__":
         rho.vector().add_local(np.array(design_variables))
         controls << rho
 
+        set_working_tape(Tape())
         w_resp   = forward(rho)
         (u, p) = w_resp.split()
         u.rename("Velocidade", "")
         state_file << u
-        if iteration == 140:
-            break
-        elif iteration == 6:
-            #q.assign(0.01)
-            pass
+        # print("Change after last iteration: {}".format(abs(np.array(design_variables).sum())))
+        # print("Change limit: {}".format(nvar * 0.0010))
+        print("Change after last iteration: {}".format(abs((j - j_previous)/j)))
+        print("Change limit: {}".format(0.00010))
+        # if abs(np.array(design_variables).sum()) < nvar * 0.0010:
+        '''alphabar.assign(2.5e1)
+        if iteration > 10:
+            alphabar.assign(2.5e2)
+        if iteration > 20:
+            alphabar.assign(2.5e3)
+        if iteration > 30:
+            alphabar.assign(2.5e4)'''
         iteration += 1
+        j_previous = j
         jd_previous = jd
 
