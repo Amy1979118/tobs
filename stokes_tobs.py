@@ -6,7 +6,6 @@ import os
 
 import cplex
 from cplex.exceptions import CplexError
-from read_param_file import *
 
 set_log_level(50)
 
@@ -95,18 +94,17 @@ octave.addpath('~')
 parameters["std_out_all_processes"] = False
 mu = Constant(1.0)
 
-beta = float(linha[1])# 0.2
-epsilons =float(linha[2])# 0.1
-delta =float(linha[3])# 1.0
-N = float(linha[4])# 30
-N = 30
-alphabar = Constant(float(linha[5]))# 2.5 * mu * 1e3
+beta = 0.2
+epsilons = 0.1
+delta = 1.5
+N = 80
+alphabar = Constant(2.5e4)
 
-q = Constant(0.01) # q value that controls difficulty/discrete-valuedness of solution
+q = Constant(1.0) # q value that controls difficulty/discrete-valuedness of solution
 
-pasta = "output_beta"+str(beta)+"_eps"+str(epsilons)+"_delta"+str(delta)+ "iter_160" + "_N=" + str(N) +"_alphabar"+ str(alphabar) + "_q="+ str(float(q)) +"kkk/"
+pasta = "output_beta"+str(beta)+"_eps"+str(epsilons)+"_delta"+str(delta)+ "iter_160" + "_N=" + str(N) +"_alphabar"+ str(float(alphabar)) + "_q="+ str(float(q)) +"bc/"
 
-alphaunderbar = 2.5 * mu *1.e-2
+alphaunderbar = 2.5 * mu *1.e-4
 
 def alpha(rho):
     """Inverse permeability as a function of rho, equation (40)"""
@@ -269,9 +267,8 @@ if __name__ == "__main__":
         state_file << u
         # print("Change after last iteration: {}".format(abs(np.array(design_variables).sum())))
         # print("Change limit: {}".format(nvar * 0.0010))
-        print("Change after last iteration: {}".format(abs((j - j_previous)/j)))
-        print("Change limit: {}".format(0.00010))
-        # if abs(np.array(design_variables).sum()) < nvar * 0.0010:
+        # print("Change after last iteration: {}".format(abs((j - j_previous)/j)))
+        # print("Change limit: {}".format(0.00010))
         '''alphabar.assign(2.5e1)
         if iteration > 10:
             alphabar.assign(2.5e2)
@@ -279,6 +276,7 @@ if __name__ == "__main__":
             alphabar.assign(2.5e3)
         if iteration > 30:
             alphabar.assign(2.5e4)'''
+        if iteration == 160: break
         iteration += 1
         j_previous = j
         jd_previous = jd
