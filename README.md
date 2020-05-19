@@ -6,6 +6,12 @@ This repository uses the more open source libraries possible to optimize fluid f
 
 Bruno Caldas de Souza (University of Sao Paulo) , bruno.caldas@usp.br;
 
+## Contributions in this repository:
+
+Paulo Yamabe (University of Sao Paulo)
+
+Luis F. N. Sá (University of Sao Paulo)
+
 ## Author of the TOBS method:
 
 Raghavendra Sivapuram (University of California), rsivapur@eng.ucsd.edu;
